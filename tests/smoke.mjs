@@ -9,6 +9,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { execFileSync } from 'node:child_process';
+import os from 'node:os';
 import assert from 'node:assert/strict';
 import * as fx from './fixtures/yandex.mjs';
 
@@ -302,6 +304,62 @@ async function main() {
     assert.deepEqual(st2, ['none', 'social', 'site']);
     assert.match(await page.textContent('#attribution'), /OpenStreetMap/);
     assert.match(await page.textContent('#quota-pill'), /0 \//);
+    await context.close();
+  });
+
+  await step('Excel: Яндекс только после подтверждения, OSM сразу; файлы валидные и учитывают фильтр', async () => {
+    const { context, page } = await setup(browser, base, { storage: KEYS });
+    await page.waitForSelector('.stub-map');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lr-xlsx-'));
+    let k = 0;
+    const grab = async () => {
+      const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#export-btn')]);
+      const file = path.join(dir, `${k++}-${dl.suggestedFilename()}`);
+      await dl.saveAs(file);
+      return file;
+    };
+    // Яндекс: отказ в подтверждении, файла нет.
+    await page.click('#search-btn');
+    await page.waitForFunction(() => document.querySelectorAll('#results-body tr').length === 50);
+    let downloaded = false;
+    page.once('download', () => { downloaded = true; });
+    let warning = '';
+    page.once('dialog', (d) => { warning = d.message(); d.dismiss(); });
+    await page.click('#export-btn');
+    await page.waitForTimeout(300);
+    assert.equal(downloaded, false);
+    assert.match(warning, /на свой риск/);
+    // Яндекс: подтвердили, файл есть.
+    page.once('dialog', (d) => d.accept());
+    const yfile = await grab();
+    assert.match(path.basename(yfile), /lead-radar-yandex-cafe-cao-\d{4}-\d{2}-\d{2}\.xlsx$/);
+    // OSM: выгрузка всего, потом только "Нет сайта".
+    await page.click('label:has(input[name="source"][value="osm"])');
+    await page.click('#search-btn');
+    await page.waitForFunction(() => document.querySelectorAll('#results-body tr').length === 3);
+    const all = await grab();
+    assert.match(path.basename(all), /lead-radar-osm-cafe-cao-\d{4}-\d{2}-\d{2}\.xlsx$/);
+    await page.click('.chip[data-filter="none"]');
+    assert.match(await page.textContent('#export-btn'), /\(1\)/);
+    const onlyNone = await grab();
+    const py = `
+import sys, json, openpyxl
+out = []
+for f in sys.argv[1:]:
+    ws = openpyxl.load_workbook(f).active
+    out.append([[c for c in r] for r in ws.iter_rows(values_only=True)])
+print(json.dumps(out, ensure_ascii=False))`;
+    const [y, a, b] = JSON.parse(execFileSync('python3', ['-I', '-c', py, yfile, all, onlyNone], { encoding: 'utf8' }));
+    assert.equal(y.filter((r) => r[1]).length - 1, 50, 'в выгрузке Яндекса 50 строк');
+    assert.equal(y[0][7], 'Яндекс Карты');
+    assert.equal(y[1][7], 'https://yandex.ru/maps/org/1000000/');
+    assert.match(String(y[y.length - 1][0]), /Яндекс/);
+    assert.deepEqual(a[0].slice(0, 3), ['Статус', 'Название', 'Категория']);
+    assert.deepEqual(a.slice(1, 4).map((r) => r[1]), ['Яблоко OSM', 'Арбуз OSM', 'Банан OSM']);
+    assert.equal(a[1][5], 'https://apple-cafe.ru/');
+    assert.equal(a[1][8], 37.61);
+    assert.match(String(a[a.length - 1][0]), /OpenStreetMap/);
+    assert.deepEqual(b.slice(1).filter((r) => r[1]).map((r) => r[1]), ['Банан OSM']);
     await context.close();
   });
 

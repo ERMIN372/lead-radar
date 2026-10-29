@@ -6,6 +6,7 @@ import * as yandex from './sources/yandex.js';
 import * as osm from './sources/osm.js';
 import * as mapView from './map.js';
 import * as table from './table.js';
+import { buildXlsx, download } from './xlsx.js';
 
 const $ = (id) => document.getElementById(id);
 const VISIBLE_AREA = '__visible__';
@@ -135,6 +136,8 @@ function readQuery() {
     ll: area.ll,
     spn: area.spn,
     label: `${cat.id === 'custom' ? `«${custom}»` : cat.label} · ${area.label}`,
+    categoryId: cat.id,
+    areaId: areaId === VISIBLE_AREA ? 'map' : areaId,
   };
 }
 
@@ -322,7 +325,7 @@ function renderChips() {
     n.className = 'count';
     n.textContent = String(c[id]);
     b.append(n);
-    b.addEventListener('click', () => { state.filter = id; applyFilter(); renderChips(); });
+    b.addEventListener('click', () => { state.filter = id; applyFilter(); renderChips(); renderControls(); });
     box.append(b);
   }
 }
@@ -361,6 +364,11 @@ function renderControls() {
   more.textContent = `Ещё ${YANDEX.pageSize} (−1 запрос)`;
   all.textContent = `Загрузить всё (до ${left} запр.)`;
   stop.hidden = !state.busy;
+  const exp = $('export-btn');
+  exp.hidden = !state.query || !state.items.length;
+  exp.disabled = state.busy;
+  const n = state.filter === 'all' ? state.items.length : state.items.length - dimmedSet().size;
+  exp.textContent = `Скачать Excel (${n})`;
   $('search-btn').disabled = state.busy;
   $('search-btn').textContent = state.busy ? 'Ищу…' : (yandexMode ? 'Найти (−1 запрос)' : 'Найти в OSM');
 
@@ -403,6 +411,48 @@ function renderAll() {
 function focusItem(uid) {
   table.highlight(uid, false);
   mapView.focus(uid);
+}
+
+/* ---------- export ---------- */
+
+// Выгрузка данных Яндекса включена по решению владельца, на его риск: условия
+// API Поиска по организациям запрещают сохранять результаты (п. 2.2), а расширенной
+// лицензии с сохранением для этого API нет. Поэтому перед каждой выгрузкой спрашиваем.
+const YANDEX_EXPORT_WARNING = 'Условия API Поиска по организациям запрещают сохранять результаты. За нарушение Яндекс может заблокировать ключ без предупреждения. Скачать Excel на свой риск?';
+
+function onExport() {
+  const isYandex = state.query?.source === 'yandex';
+  if (isYandex && !window.confirm(YANDEX_EXPORT_WARNING)) return;
+  const dim = dimmedSet();
+  const items = orderedItems().filter((it) => !dim.has(it.uid));
+  if (!items.length) { toast('Нечего выгружать'); return; }
+  const columns = [
+    { title: 'Статус', width: 22 }, { title: 'Название', width: 32 }, { title: 'Категория', width: 18 },
+    { title: 'Адрес', width: 40 }, { title: 'Телефон', width: 22 }, { title: 'Сайт', width: 34 },
+    { title: 'Часы работы', width: 26 }, { title: isYandex ? 'Яндекс Карты' : 'Объект в OSM', width: 40 },
+    { title: 'Долгота', width: 11 }, { title: 'Широта', width: 11 },
+  ];
+  const rows = items.map((it) => {
+    const c = classOf(it);
+    return [
+      STATUS[c.status].label, it.name, it.category, it.address, it.phones.join(', '),
+      c.href || it.url || '', it.hours, it.cardUrl,
+      it.coords ? it.coords[0] : '', it.coords ? it.coords[1] : '',
+    ];
+  });
+  const day = new Date().toISOString().slice(0, 10);
+  // Имя файла только латиницей: Chromium заменяет имя с кириллицей на "download".
+  const slug = [state.query.categoryId, state.query.areaId].map((x) => String(x).replace(/[^a-z0-9]+/gi, '')).filter(Boolean).join('-');
+  const blob = buildXlsx({
+    sheetName: 'Лиды',
+    columns,
+    rows,
+    note: isYandex
+      ? 'Данные об организациях предоставлены Яндексом (API Поиска по организациям)'
+      : 'Данные © участники OpenStreetMap, лицензия ODbL: https://www.openstreetmap.org/copyright',
+  });
+  download(blob, `lead-radar-${isYandex ? 'yandex' : 'osm'}-${slug}-${day}.xlsx`);
+  toast(`Скачано строк: ${rows.length}`);
 }
 
 /* ---------- copy ---------- */
@@ -559,6 +609,7 @@ function init() {
   for (const r of document.querySelectorAll('input[name="source"]')) r.addEventListener('change', () => setSource(r.value));
   $('more-btn').addEventListener('click', onMore);
   $('all-btn').addEventListener('click', onLoadAll);
+  $('export-btn').addEventListener('click', onExport);
   $('stop-btn').addEventListener('click', () => state.abort && state.abort.abort());
   $('sort').addEventListener('change', () => { state.sort = $('sort').value; renderAll(); });
   $('settings-btn').addEventListener('click', () => openSettings());

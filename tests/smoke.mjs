@@ -134,6 +134,7 @@ async function main() {
     assert.equal(card, 'https://yandex.ru/maps/org/1000000/');
     const hint = await page.textContent('#results-body tr:nth-child(7) td:nth-child(2)');
     assert.match(hint, /конструктор: tilda\.ws/);
+    assert.equal(await page.textContent('#results-body tr:nth-child(8) a.site'), 'топган.рф');
     await page.screenshot({ path: path.join(SHOTS, '02-results-desktop.png'), fullPage: true });
     assert.deepEqual(log.errors, []);
     await context.close();

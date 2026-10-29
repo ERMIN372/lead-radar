@@ -9,7 +9,7 @@ export const URL_CYCLE = [
   'n123.yclients.com/company/1',   // social (онлайн-запись)
   'taplink.cc/abc',                // social
   'https://cafe.tilda.ws',         // site + подсказка "конструктор"
-  'site-without-scheme.ru',        // site
+  'http://топган.рф/',              // site, кириллический домен
   '   ',                           // none
   'https://t.me/testcafe',         // social
 ];

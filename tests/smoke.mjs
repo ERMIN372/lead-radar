@@ -222,12 +222,31 @@ async function main() {
   });
 
   await step('ошибка 403 показывается понятным текстом', async () => {
-    const { context, page } = await setup(browser, base, { storage: KEYS, yandexStatus: 403 });
+    const { context, page, log } = await setup(browser, base, { storage: KEYS, yandexStatus: 403 });
     await page.waitForSelector('.stub-map');
     await page.click('#search-btn');
     await page.waitForSelector('#alert:not([hidden])');
     assert.match(await page.textContent('#alert'), /403/);
     assert.match(await page.textContent('#alert'), /пробный период/);
+    assert.match(await page.textContent('#alert'), /Invalid apikey/);
+    // Повтор с тем же ключом спрашивает подтверждение; отказ не тратит запрос.
+    let asked = '';
+    page.once('dialog', (d) => { asked = d.message(); d.dismiss(); });
+    await page.click('#search-btn');
+    await page.waitForTimeout(300);
+    assert.match(asked, /уже вернул 403/);
+    assert.equal(log.yandexRequests.length, 1);
+    assert.match(await page.textContent('#quota-pill'), /1 \//);
+    await context.close();
+  });
+
+  await step('одинаковые ключи поиска и карты: запрос не уходит', async () => {
+    const { context, page, log } = await setup(browser, base, { storage: { 'lr.key.search': 'same', 'lr.key.map': 'same' } });
+    await page.waitForSelector('.stub-map');
+    await page.click('#search-btn');
+    await page.waitForSelector('#alert:not([hidden])');
+    assert.match(await page.textContent('#alert'), /совпадает с ключом карты/);
+    assert.equal(log.yandexRequests.length, 0);
     await context.close();
   });
 

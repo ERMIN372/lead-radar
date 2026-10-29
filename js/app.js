@@ -9,6 +9,7 @@ import * as table from './table.js';
 
 const $ = (id) => document.getElementById(id);
 const VISIBLE_AREA = '__visible__';
+const SAME_KEYS = 'Ключ поиска совпадает с ключом карты. Это два разных ключа: в кабинете у «API Поиска по организациям» свой ключ, отдельный от «JavaScript API».';
 
 // Всё, что пришло из API, живёт только здесь, в памяти вкладки.
 const state = {
@@ -25,6 +26,9 @@ const state = {
   busy: false,
   abort: null,
   mapState: 'none', // none | loading | ready | error
+  // Ключ поиска, который уже вернул 403. Без подтверждения повторно его не дёргаем,
+  // чтобы не жечь квоту кликами.
+  rejectedKey: null,
 };
 
 const classCache = new WeakMap();
@@ -81,7 +85,8 @@ function renderQuota() {
   pill.textContent = `Запросы: ${used} / ${cap}`;
   pill.classList.toggle('warn', used >= cap * 0.8 && used < cap);
   pill.classList.toggle('stop', used >= cap);
-  $('cap-hint').textContent = `Останавливаемся на ${cap} (лимит ${quota.getDailyLimit()} минус 10%). Сброс в 00:00 по Москве.`;
+  const over = quota.getDailyLimit() > 100 ? ' Внимание: пробный тариф даёт 100 запросов в сутки. Больше ставь, только если купил платный, иначе Яндекс может заблокировать ключ.' : '';
+  $('cap-hint').textContent = `Останавливаемся на ${cap} (лимит ${quota.getDailyLimit()} минус 10%). Сброс в 00:00 по Москве.${over}`;
   renderControls();
 }
 
@@ -207,6 +212,7 @@ async function withBusy(fn) {
     await fn();
   } catch (err) {
     if (err.name !== 'AbortError') {
+      if (err instanceof yandex.ApiError && err.status === 403) state.rejectedKey = keys().search;
       console.error('[search]', err);
       showAlert(errorText(err));
     }
@@ -222,14 +228,21 @@ function precheck() {
   if (state.source === 'yandex') {
     if (!k.search) return 'Нужен ключ API Поиска по организациям. Открой «Ключи».';
     if (!k.map) return 'Нужен ключ JavaScript API: данные Яндекса по условиям обязательно показываются на карте.';
+    if (k.search === k.map) return SAME_KEYS;
     if (state.mapState === 'error') return 'Карта не загрузилась. По условиям Яндекса данные поиска показываются только вместе с картой, поэтому сначала почини ключ JavaScript API (подробности в Console).';
     if (!quota.canSpend(1)) return errorText({ quota: true });
   }
   return null;
 }
 
+function confirmRejectedKey() {
+  if (state.source !== 'yandex' || !state.rejectedKey || state.rejectedKey !== keys().search) return true;
+  return window.confirm('Этот ключ поиска уже вернул 403. Каждая попытка тратит запрос из суточного лимита. Сначала проверь ключ в кабинете. Всё равно повторить?');
+}
+
 async function onSearch(e) {
   e.preventDefault();
+  if (!confirmRejectedKey()) return;
   const problem = precheck();
   if (problem) { showAlert(problem); if (!keys().search || !keys().map) openSettings(true); return; }
   const q = readQuery();
@@ -246,6 +259,7 @@ async function onSearch(e) {
 }
 
 async function onMore() {
+  if (!confirmRejectedKey()) return;
   if (precheck()) { showAlert(precheck()); return; }
   await withBusy(() => fetchYandexPage());
 }
@@ -446,6 +460,7 @@ function onSaveKeys(e) {
   if (mapKey) store.set(store.KEYS.mapKey, mapKey); else store.remove(store.KEYS.mapKey);
   quota.setDailyLimit($('daily-limit').value);
   renderQuota();
+  if (search && search === mapKey) { showAlert(SAME_KEYS); return; }
   openSettings(false);
   showAlert(null);
   toast('Сохранено в этом браузере');

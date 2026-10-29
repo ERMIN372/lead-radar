@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="robots" content="noindex">
+  <title>Lead Radar</title>
+  <meta name="description" content="Поиск локального бизнеса без сайта или с устаревшим сайтом">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='none' stroke='%236366f1' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23e5484d'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/styles.css">
+  <script>
+    // Тему ставим до отрисовки, чтобы не мигало.
+    try { const t = localStorage.getItem('lr.theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="16" cy="16" r="4" fill="#e5484d"/></svg>
+      <span>Lead Radar</span>
+    </div>
+    <div class="topbar-right">
+      <span id="quota-pill" class="pill" title="Счётчик запросов к API Поиска по организациям за сегодня (по Москве). Хранится только в этом браузере.">Запросы: 0 / 90</span>
+      <button id="theme-btn" class="btn btn-ghost btn-icon" type="button" title="Тема: авто" aria-label="Переключить тему">◐</button>
+      <button id="settings-btn" class="btn btn-ghost" type="button" aria-expanded="false" aria-controls="settings">Ключи</button>
+    </div>
+  </header>
+
+  <section id="settings" class="card settings" hidden>
+    <h2>Ключи API</h2>
+    <p class="muted small">Ключи хранятся только в localStorage этого браузера и никуда, кроме Яндекса, не отправляются. В репозитории их нет. Как получить ключи, написано в <a href="https://github.com/ERMIN372/lead-radar#readme" target="_blank" rel="noopener">README</a>.</p>
+    <form id="keys-form" autocomplete="off">
+      <label class="field">
+        <span>Ключ «API Поиска по организациям»</span>
+        <span class="input-row">
+          <input id="search-key" type="password" spellcheck="false" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+          <button type="button" class="btn btn-ghost btn-sm" data-toggle="search-key">показать</button>
+        </span>
+      </label>
+      <label class="field">
+        <span>Ключ «JavaScript API» (для карты)</span>
+        <span class="input-row">
+          <input id="map-key" type="password" spellcheck="false" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+          <button type="button" class="btn btn-ghost btn-sm" data-toggle="map-key">показать</button>
+        </span>
+      </label>
+      <label class="field field-narrow">
+        <span>Суточный лимит тарифа поиска</span>
+        <input id="daily-limit" type="number" min="1" step="1" inputmode="numeric">
+        <span class="muted small" id="cap-hint">Останавливаемся на 90%.</span>
+      </label>
+      <div class="actions">
+        <button class="btn btn-primary" type="submit">Сохранить</button>
+        <button id="forget-btn" class="btn btn-danger" type="button">Забыть ключи</button>
+      </div>
+    </form>
+  </section>
+
+  <main class="layout">
+    <section class="card controls" aria-label="Параметры поиска">
+      <form id="search-form">
+        <fieldset class="seg" aria-label="Источник данных">
+          <label><input type="radio" name="source" value="yandex" checked> Яндекс</label>
+          <label><input type="radio" name="source" value="osm"> OpenStreetMap</label>
+        </fieldset>
+        <label class="field">
+          <span>Категория</span>
+          <select id="category"></select>
+        </label>
+        <label class="field" id="custom-wrap" hidden>
+          <span>Свой запрос</span>
+          <input id="custom-text" type="text" maxlength="100" placeholder="например: ремонт обуви">
+        </label>
+        <label class="field">
+          <span>Область</span>
+          <select id="area"></select>
+        </label>
+        <button id="search-btn" class="btn btn-primary btn-block" type="submit">Найти</button>
+        <p id="search-hint" class="muted small"></p>
+      </form>
+    </section>
+
+    <div id="alert" class="alert" role="alert" hidden></div>
+
+    <section class="map-wrap card" aria-label="Карта">
+      <div id="map"></div>
+      <div id="map-placeholder" class="map-placeholder">Карта появится после ввода ключа JavaScript API.</div>
+    </section>
+
+    <section class="card results" aria-label="Результаты">
+      <div class="results-head">
+        <div id="summary" class="summary muted">Пока ничего не искали.</div>
+        <div class="paging">
+          <button id="more-btn" class="btn" type="button" hidden>Ещё 50</button>
+          <button id="all-btn" class="btn btn-ghost" type="button" hidden>Загрузить всё</button>
+          <button id="stop-btn" class="btn btn-danger" type="button" hidden>Стоп</button>
+        </div>
+      </div>
+      <div class="filters">
+        <div id="chips" class="chips" role="group" aria-label="Фильтр по статусу"></div>
+        <label class="sort">
+          <span class="muted small">Порядок</span>
+          <select id="sort" title="Для данных Яндекса порядок выдачи менять нельзя по условиям API">
+            <option value="api">как в выдаче</option>
+            <option value="name">по названию</option>
+            <option value="status">по статусу</option>
+          </select>
+        </label>
+      </div>
+      <p class="muted small filter-note">Фильтр приглушает неподходящие строки и метки. Порядок и состав выдачи не меняются.</p>
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr><th>№</th><th>Статус</th><th>Название</th><th>Адрес</th><th>Телефон</th><th>Сайт</th><th>Действия</th></tr>
+          </thead>
+          <tbody id="results-body"></tbody>
+        </table>
+      </div>
+      <p id="attribution" class="attribution small"></p>
+    </section>
+  </main>
+
+  <footer class="footer muted small">
+    Данные не сохраняются: результаты живут в памяти вкладки до перезагрузки.
+    <a href="https://yandex.ru/legal/maps_termsofuse" target="_blank" rel="noopener">Условия использования сервиса Яндекс Карты</a>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

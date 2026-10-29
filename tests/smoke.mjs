@@ -248,6 +248,24 @@ async function main() {
     await context.close();
   });
 
+  await step('карта: 403 на ключ → понятная ошибка и "Повторить" без перезагрузки', async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    let mapOk = false;
+    await page.route('https://api-maps.yandex.ru/**', (r) => mapOk
+      ? r.fulfill({ contentType: 'text/javascript', body: STUB })
+      : r.fulfill({ status: 403, contentType: 'application/json', body: '{"statusCode":403,"error":"Forbidden","message":"Invalid api key"}' }));
+    await context.addInitScript((s) => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, v); }, KEYS);
+    await page.goto(base);
+    await page.waitForSelector('#map-placeholder button');
+    assert.match(await page.textContent('#map-placeholder'), /не загрузилась/);
+    mapOk = true;
+    await page.click('#map-placeholder button');
+    await page.waitForSelector('.stub-map');
+    assert.equal(await page.isHidden('#map-placeholder'), true);
+    await context.close();
+  });
+
   await step('OSM: работает без ключей, сортировка доступна, атрибуция OSM', async () => {
     const { context, page, log } = await setup(browser, base);
     await page.click('#settings-btn');

@@ -451,7 +451,8 @@ function onSaveKeys(e) {
   toast('Сохранено в этом браузере');
   if (mapKey && mapKey !== before.map) {
     // JS API нельзя переинициализировать с другим ключом без перезагрузки.
-    if (state.mapState === 'none') startMap();
+    // Если скрипт так и не загрузился, можно грузить с новым ключом без перезагрузки.
+    if (state.mapState === 'none' || state.mapState === 'error') startMap();
     else location.reload();
   }
 }
@@ -492,6 +493,7 @@ async function startMap() {
   const k = keys();
   if (!k.map) return;
   state.mapState = 'loading';
+  $('map-placeholder').hidden = false;
   $('map-placeholder').textContent = 'Загружаю карту…';
   try {
     const { openBtn } = await mapView.init($('map'), k.map, {
@@ -505,7 +507,18 @@ async function startMap() {
   } catch (err) {
     state.mapState = 'error';
     console.error('[map]', err);
-    $('map-placeholder').textContent = 'Карта не загрузилась. Частые причины: неверный ключ JavaScript API, в ключе не указан Referer ermin372.github.io или он ещё не активировался (до 15 минут). Подробности в DevTools → Console.';
+    const ph = $('map-placeholder');
+    ph.replaceChildren();
+    const box = document.createElement('div');
+    const p = document.createElement('p');
+    p.textContent = 'Карта не загрузилась. Частые причины: ключ JavaScript API ещё не активировался (до 15 минут), в ключе не указан Referer ermin372.github.io или в ключе опечатка. В DevTools → Network запрос api-maps покажет код ответа.';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'btn btn-primary';
+    retry.textContent = 'Повторить';
+    retry.addEventListener('click', () => { showAlert(null); startMap(); });
+    box.append(p, retry);
+    ph.append(box);
   }
 }
 

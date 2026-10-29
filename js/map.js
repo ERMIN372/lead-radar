@@ -20,7 +20,10 @@ function loadScript(apikey) {
     s.async = true;
     const timer = setTimeout(() => reject(new Error('таймаут загрузки JS API')), 20000);
     s.onload = () => { clearTimeout(timer); window.ymaps3 ? resolve(window.ymaps3) : reject(new Error('скрипт загрузился, но ymaps3 не появился')); };
-    s.onerror = () => { clearTimeout(timer); reject(new Error('скрипт JS API не загрузился')); };
+    // При неверном или ещё не активном ключе сервер отвечает 403 {"message":"Invalid api key"}.
+    // Прочитать этот ответ из JS нельзя (нет CORS), видно только во вкладке Network.
+    // Тег удаляем, чтобы "Повторить" мог загрузить скрипт заново.
+    s.onerror = () => { clearTimeout(timer); s.remove(); reject(new Error('скрипт JS API не загрузился (Network → api-maps: скорее всего 403 Invalid api key)')); };
     document.head.appendChild(s);
   });
 }

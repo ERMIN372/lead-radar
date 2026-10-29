@@ -2,6 +2,7 @@
 // textContent и проверенные href: названия организаций могут содержать что угодно.
 
 import { STATUS } from './config.js';
+import { displayHost } from './classify.js';
 
 const tbody = () => document.getElementById('results-body');
 
@@ -66,7 +67,7 @@ function renderRow(item, index, cls, handlers) {
 
   const siteTd = cell('Сайт');
   if (cls.href) {
-    siteTd.body.append(el('a', { href: cls.href, target: '_blank', rel: 'noopener noreferrer nofollow', class: 'site' }, cls.host));
+    siteTd.body.append(el('a', { href: cls.href, target: '_blank', rel: 'noopener noreferrer nofollow', class: 'site' }, displayHost(cls.host)));
   } else if (item.url) {
     siteTd.body.append(el('span', { class: 'muted' }, item.url));
   } else {
